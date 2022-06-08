@@ -1,4 +1,4 @@
-use crate::swatch::Swatch;
+use crate::{filter::Filter, swatch::Swatch};
 use std::collections::{BinaryHeap, HashMap};
 
 const QUANTIZE_WORD_WIDTH: u32 = 5;
@@ -10,6 +10,7 @@ where
 {
     pixels: Vec<P>,
     max_colors: usize,
+    filters: Vec<Box<dyn Filter>>,
 }
 
 struct Vbox<'a, P>
@@ -33,22 +34,32 @@ impl<P> ColorCutQuantizer<P>
 where
     P: image::Pixel<Subpixel = u8> + std::cmp::Eq + std::hash::Hash,
 {
-    pub fn new(pixels: Vec<P>, max_colors: usize) -> Self {
-        Self { pixels, max_colors }
+    pub fn new(pixels: Vec<P>, max_colors: usize, filters: Vec<Box<dyn Filter>>) -> Self {
+        Self {
+            pixels,
+            max_colors,
+            filters,
+        }
     }
 
     pub fn get_quantized_colors(self) -> Vec<Swatch> {
         let mut hist = HashMap::new();
 
-        for mut pixel in self.pixels.into_iter() {
-            pixel.apply(|channel| modify_width(channel, 8, QUANTIZE_WORD_WIDTH) as u8);
+        for pixel in self.pixels.iter() {
+            let pixel = pixel.map(|channel| modify_width(channel, 8, QUANTIZE_WORD_WIDTH) as u8);
             *hist.entry(pixel).or_insert(0) += 1;
         }
 
         let hist_len = hist.len();
         let mut colors = hist
             .into_iter()
-            .map(|(pixel, count)| (pixel, count))
+            .filter_map(|(pixel, count)| {
+                if self.should_ignore_color(pixel_to_rgb(&pixel)) {
+                    None
+                } else {
+                    Some((pixel, count))
+                }
+            })
             .collect::<Vec<_>>();
 
         colors.sort_by_key(|(pixel, _)| {
@@ -62,20 +73,49 @@ where
                 .map(|(pixel, count)| Swatch::new(pixel_to_rgb(&pixel), count))
                 .collect()
         } else {
-            quantize_pixels(colors, self.max_colors)
+            self.quantize_pixels(colors)
         }
     }
-}
 
-fn quantize_pixels<P>(mut colors: Vec<(P, u32)>, max_colors: usize) -> Vec<Swatch>
-where
-    P: image::Pixel<Subpixel = u8> + std::cmp::Eq + std::hash::Hash,
-{
-    let mut pq = BinaryHeap::with_capacity(max_colors);
-    pq.push(Vbox::new(&mut colors));
+    fn should_ignore_color(&self, rgb: (u8, u8, u8)) -> bool {
+        let hsl = crate::rgb_to_hsl(rgb);
+        self.filters.iter().any(|filter| !filter.is_allowed(rgb, hsl))
+    }
 
-    split_boxes(&mut pq, max_colors);
-    pq.into_iter().map(|vbox| vbox.get_average_color()).collect()
+    fn quantize_pixels(self, mut colors: Vec<(P, u32)>) -> Vec<Swatch> {
+        let mut pq = BinaryHeap::with_capacity(self.max_colors);
+        pq.push(Vbox::new(&mut colors));
+
+        self.split_boxes(&mut pq);
+        pq.iter()
+            .filter_map(|vbox| {
+                let swatch = vbox.get_average_color();
+
+                if !self.should_ignore_color(swatch.rgb()) {
+                    Some(swatch)
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
+
+    fn split_boxes(&self, pq: &mut BinaryHeap<Vbox<'_, P>>) {
+        while pq.len() < self.max_colors {
+            if let Some(vbox) = pq.pop() {
+                if vbox.can_split() {
+                    let (old, new) = vbox.split_box();
+
+                    pq.push(old);
+                    pq.push(new);
+
+                    continue;
+                }
+            }
+
+            return;
+        }
+    }
 }
 
 impl<'a, P> Vbox<'a, P>
@@ -165,7 +205,7 @@ where
             pop += count;
 
             if pop >= midpoint {
-                // take care to never return the lowest index, so all boxes will always be split in two
+                // never return the lowest index, so boxes will always be split in two
                 return i.max(1);
             }
         }
@@ -259,25 +299,5 @@ fn modify_width(value: u8, current_width: u32, target_width: u32) -> u8 {
         value.wrapping_shl(target_width - current_width)
     } else {
         value.wrapping_shr(current_width - target_width)
-    }
-}
-
-fn split_boxes<P>(pq: &mut BinaryHeap<Vbox<'_, P>>, max_size: usize)
-where
-    P: image::Pixel<Subpixel = u8> + std::cmp::Eq + std::hash::Hash,
-{
-    while pq.len() < max_size {
-        if let Some(vbox) = pq.pop() {
-            if vbox.can_split() {
-                let (old, new) = vbox.split_box();
-
-                pq.push(old);
-                pq.push(new);
-
-                continue;
-            }
-        }
-
-        return;
     }
 }

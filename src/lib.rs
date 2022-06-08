@@ -22,6 +22,7 @@
 //! [Android Jetpack license.](https://github.com/androidx/androidx/blob/7b7922489f9a7572f4462558691bf5550dd65c26/LICENSE.txt)
 
 mod color_cut_quantizer;
+mod filter;
 mod swatch;
 mod target;
 
@@ -33,7 +34,9 @@ pub use image;
 pub use palette;
 
 use color_cut_quantizer::ColorCutQuantizer;
+use filter::{DefaultFilter, Filter};
 use image::{math::Rect, GenericImageView, ImageBuffer};
+use palette::IntoColor;
 use std::collections::{HashMap, HashSet};
 
 #[derive(Debug)]
@@ -44,7 +47,6 @@ pub struct Palette {
     selected_swatches: HashMap<u64, Option<Swatch>>,
 }
 
-#[derive(Debug)]
 pub struct PaletteBuilder<P>
 where
     P: image::Pixel<Subpixel = u8> + 'static + std::cmp::Eq + std::hash::Hash,
@@ -54,6 +56,7 @@ where
     maximum_color_count: usize,
     resize_area: u32,
     region: Option<Rect>,
+    filters: Vec<Box<dyn Filter>>,
 }
 
 impl Palette {
@@ -166,6 +169,7 @@ where
             maximum_color_count: DEFAULT_CALCULATE_NUMBER_COLORS,
             resize_area: DEFAULT_RESIZE_IMAGE_AREA,
             region: None,
+            filters: vec![Box::new(DefaultFilter)],
         }
     }
 
@@ -192,6 +196,14 @@ where
         self
     }
 
+    pub fn add_filter<F>(mut self, filter: F) -> Self
+    where
+        F: Filter + 'static,
+    {
+        self.filters.push(Box::new(filter));
+        self
+    }
+
     pub fn clear_region(self) -> Self {
         Self { region: None, ..self }
     }
@@ -199,6 +211,13 @@ where
     pub fn clear_targets(self) -> Self {
         Self {
             targets: Vec::new(),
+            ..self
+        }
+    }
+
+    pub fn clear_filters(self) -> Self {
+        Self {
+            filters: Vec::new(),
             ..self
         }
     }
@@ -225,7 +244,7 @@ where
         };
 
         let pixels = view.pixels().map(|(_, _, p)| p).collect();
-        let quantizer = ColorCutQuantizer::new(pixels, self.maximum_color_count);
+        let quantizer = ColorCutQuantizer::new(pixels, self.maximum_color_count, self.filters);
         let swatches = quantizer.get_quantized_colors();
 
         Palette::generate(swatches, self.targets)
@@ -327,4 +346,13 @@ fn generate_score(swatch: Swatch, target: Target) -> f32 {
     };
 
     saturation_score + luminance_score + population_score
+}
+
+fn rgb_to_hsl(rgb: (u8, u8, u8)) -> (f32, f32, f32) {
+    let raw = palette::Srgb::from_components(rgb);
+    let raw_float: palette::Srgb<f32> = raw.into_format();
+    let hsl: palette::Hsl = raw_float.into_color();
+    let (h, s, l) = hsl.into_components();
+
+    (h.to_positive_degrees(), s, l)
 }
