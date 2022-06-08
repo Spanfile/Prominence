@@ -1,10 +1,15 @@
 [package]
+edition = "2021"
 name = "prominence"
 version = "0.1.0"
-edition = "2021"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 image = "0.24.2"
+num-traits = "0.2.15"
 palette = "0.6.0"
+rand = "0.8.5"
+
+serde = {version = "1.0.137", features = ["derive"], optional = true}
+
+[features]
+serde = ["dep:serde"]

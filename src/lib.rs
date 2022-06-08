@@ -37,10 +37,11 @@ use image::{math::Rect, GenericImageView, ImageBuffer};
 use std::collections::{HashMap, HashSet};
 
 #[derive(Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Palette {
     swatches: Vec<Swatch>,
     targets: Vec<Target>,
-    selected_swatches: HashMap<Target, Option<Swatch>>,
+    selected_swatches: HashMap<u64, Option<Swatch>>,
 }
 
 #[derive(Debug)]
@@ -56,11 +57,82 @@ where
 }
 
 impl Palette {
-    pub fn from_image<P, C>(image: ImageBuffer<P, Vec<<P as image::Pixel>::Subpixel>>) -> PaletteBuilder<P>
+    pub fn from_image<P>(image: ImageBuffer<P, Vec<<P as image::Pixel>::Subpixel>>) -> PaletteBuilder<P>
     where
         P: image::Pixel<Subpixel = u8> + 'static + std::cmp::Eq + std::hash::Hash,
     {
         PaletteBuilder::from_image(image)
+    }
+
+    pub fn swatches(&self) -> &[Swatch] {
+        &self.swatches
+    }
+
+    pub fn targets(&self) -> &[Target] {
+        &self.targets
+    }
+
+    pub fn light_vibrant_swatch(&self) -> Option<Swatch> {
+        self.get_swatch_for_target(Target::light_vibrant())
+    }
+
+    pub fn vibrant_swatch(&self) -> Option<Swatch> {
+        self.get_swatch_for_target(Target::vibrant())
+    }
+
+    pub fn dark_vibrant_swatch(&self) -> Option<Swatch> {
+        self.get_swatch_for_target(Target::dark_vibrant())
+    }
+
+    pub fn light_muted_swatch(&self) -> Option<Swatch> {
+        self.get_swatch_for_target(Target::light_muted())
+    }
+
+    pub fn muted_swatch(&self) -> Option<Swatch> {
+        self.get_swatch_for_target(Target::muted())
+    }
+
+    pub fn dark_muted_swatch(&self) -> Option<Swatch> {
+        self.get_swatch_for_target(Target::dark_muted())
+    }
+
+    pub fn light_vibrant_color(&self) -> Option<(u8, u8, u8)> {
+        self.get_swatch_for_target(Target::light_vibrant())
+            .map(|swatch| swatch.rgb())
+    }
+
+    pub fn vibrant_color(&self) -> Option<(u8, u8, u8)> {
+        self.get_swatch_for_target(Target::vibrant()).map(|swatch| swatch.rgb())
+    }
+
+    pub fn dark_vibrant_color(&self) -> Option<(u8, u8, u8)> {
+        self.get_swatch_for_target(Target::dark_vibrant())
+            .map(|swatch| swatch.rgb())
+    }
+
+    pub fn light_muted_color(&self) -> Option<(u8, u8, u8)> {
+        self.get_swatch_for_target(Target::light_muted())
+            .map(|swatch| swatch.rgb())
+    }
+
+    pub fn muted_color(&self) -> Option<(u8, u8, u8)> {
+        self.get_swatch_for_target(Target::muted()).map(|swatch| swatch.rgb())
+    }
+
+    pub fn dark_muted_color(&self) -> Option<(u8, u8, u8)> {
+        self.get_swatch_for_target(Target::dark_muted())
+            .map(|swatch| swatch.rgb())
+    }
+
+    pub fn get_swatch_for_target(&self, target: Target) -> Option<Swatch> {
+        self.selected_swatches.get(&target.id()).copied().flatten()
+    }
+
+    pub fn most_prominent_color(&self) -> Option<(u8, u8, u8)> {
+        self.swatches
+            .iter()
+            .max_by_key(|swatch| swatch.population())
+            .map(|swatch| swatch.rgb())
     }
 
     fn generate(swatches: Vec<Swatch>, mut targets: Vec<Target>) -> Palette {
@@ -69,7 +141,10 @@ impl Palette {
 
         for target in &mut targets {
             target.normalize_weights();
-            selected_swatches.insert(*target, generate_scored_target(&swatches, *target, &mut used_colors));
+            selected_swatches.insert(
+                target.id(),
+                generate_scored_target(&swatches, *target, &mut used_colors),
+            );
         }
 
         Self {
@@ -87,7 +162,7 @@ where
     pub fn from_image(image: ImageBuffer<P, Vec<<P as image::Pixel>::Subpixel>>) -> Self {
         Self {
             image,
-            targets: target::DEFAULT_TARGETS.to_vec(),
+            targets: Target::default_targets().to_vec(),
             maximum_color_count: DEFAULT_CALCULATE_NUMBER_COLORS,
             resize_area: DEFAULT_RESIZE_IMAGE_AREA,
             region: None,
@@ -119,6 +194,13 @@ where
 
     pub fn clear_region(self) -> Self {
         Self { region: None, ..self }
+    }
+
+    pub fn clear_targets(self) -> Self {
+        Self {
+            targets: Vec::new(),
+            ..self
+        }
     }
 
     pub fn generate(mut self) -> Palette {
@@ -153,16 +235,14 @@ where
     where
         <P as image::Pixel>::Subpixel: 'static,
     {
-        let mut scale_ratio = -1.0;
         let (width, height) = self.image.dimensions();
+        let area = width * height;
 
-        if self.resize_area > 0 {
-            let area = width * height;
-
-            if area > self.resize_area {
-                scale_ratio = (self.resize_area as f32 / area as f32).sqrt();
-            }
-        }
+        let scale_ratio = if self.resize_area > 0 && area > self.resize_area {
+            (self.resize_area as f32 / area as f32).sqrt()
+        } else {
+            0.0
+        };
 
         if scale_ratio > 0.0 {
             self.image = image::imageops::resize(
@@ -171,6 +251,7 @@ where
                 (height as f32 * scale_ratio).ceil() as u32,
                 image::imageops::FilterType::Nearest,
             );
+
             true
         } else {
             false
@@ -184,8 +265,8 @@ fn generate_scored_target(
     used_colors: &mut HashSet<(u8, u8, u8)>,
 ) -> Option<Swatch> {
     if target.is_exclusive() {
-        if let Some(max_scored_swatch) = get_max_scored_swatch_for_target(swatches, target, &used_colors) {
-            used_colors.insert(max_scored_swatch.get_rgb());
+        if let Some(max_scored_swatch) = get_max_scored_swatch_for_target(swatches, target, used_colors) {
+            used_colors.insert(max_scored_swatch.rgb());
             return Some(max_scored_swatch);
         }
     }
@@ -216,15 +297,15 @@ fn get_max_scored_swatch_for_target(
 }
 
 fn should_be_scored_for_target(swatch: Swatch, target: Target, used_colors: &HashSet<(u8, u8, u8)>) -> bool {
-    let (_, saturation, lightness) = swatch.get_hsl();
+    let (_, saturation, lightness) = swatch.hsl();
 
     (target.minimum_saturation()..=target.maximum_saturation()).contains(&saturation)
         && (target.minimum_lightness()..=target.maximum_lightness()).contains(&lightness)
-        && !used_colors.contains(&swatch.get_rgb())
+        && !used_colors.contains(&swatch.rgb())
 }
 
 fn generate_score(swatch: Swatch, target: Target) -> f32 {
-    let (_, saturation, lightness) = swatch.get_hsl();
+    let (_, saturation, lightness) = swatch.hsl();
     let max_population = 1.0; // TODO: take from dominant swatch
 
     let saturation_score = if target.saturation_weight() > 0.0 {
