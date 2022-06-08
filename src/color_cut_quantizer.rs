@@ -43,13 +43,14 @@ where
     }
 
     pub fn get_quantized_colors(self) -> Vec<Swatch> {
+        // begin by generating a histogram of quantized pixel values
         let mut hist = HashMap::new();
-
         for pixel in self.pixels.iter() {
             let pixel = pixel.map(|channel| modify_width(channel, 8, QUANTIZE_WORD_WIDTH) as u8);
             *hist.entry(pixel).or_insert(0) += 1;
         }
 
+        // convert the histogram into a collection of (color, count) tuples, filtering out unwanted colors
         let hist_len = hist.len();
         let mut colors = hist
             .into_iter()
@@ -62,12 +63,15 @@ where
             })
             .collect::<Vec<_>>();
 
+        // the colors have to be ordered at this point, so order them by combining their channels into a single integer
+        // where the red channel is the most signifcant and the blue the least
         colors.sort_by_key(|(pixel, _)| {
             let (r, g, b) = pixel_to_rgb(pixel);
             ((r as u32) << (QUANTIZE_WORD_WIDTH + QUANTIZE_WORD_WIDTH)) | ((g as u32) << QUANTIZE_WORD_WIDTH) | b as u32
         });
 
         if hist_len <= self.max_colors {
+            // there are less colors than requested, no need for further processing; just return each color as a swatch
             colors
                 .into_iter()
                 .map(|(pixel, count)| Swatch::new(pixel_to_rgb(&pixel), count))
@@ -83,10 +87,16 @@ where
     }
 
     fn quantize_pixels(self, mut colors: Vec<(P, u32)>) -> Vec<Swatch> {
+        // create a priority queue of Vboxes with the first one containing all the given colors. Vbox comparison is
+        // based on their volume, reversed, so the queue always pops the largest Vbox by volume first
+
         let mut pq = BinaryHeap::with_capacity(self.max_colors);
         pq.push(Vbox::new(&mut colors));
 
+        // go through the queue until there are enough colors or no more boxes to split
         self.split_boxes(&mut pq);
+
+        // return the remaining Vboxes converting them into swatches, filtering out unwanted colors
         pq.iter()
             .filter_map(|vbox| {
                 let swatch = vbox.get_average_color();
@@ -104,15 +114,17 @@ where
         while pq.len() < self.max_colors {
             if let Some(vbox) = pq.pop() {
                 if vbox.can_split() {
-                    let (old, new) = vbox.split_box();
+                    // split the box in two and push them both back to the queue
+                    let (left, right) = vbox.split_box();
 
-                    pq.push(old);
-                    pq.push(new);
+                    pq.push(left);
+                    pq.push(right);
 
                     continue;
                 }
             }
 
+            // if the queue is empty or the largest one cannot be split, there are no more Vboxes to split
             return;
         }
     }
@@ -123,6 +135,8 @@ where
     P: image::Pixel<Subpixel = u8> + std::cmp::Eq + std::hash::Hash,
 {
     fn new(colors: &'a mut [(P, u32)]) -> Self {
+        // compute the boundaries of the Vbox to tightly fit around the colors within it
+
         let mut population = 0;
         // min, max
         let (mut min_red, mut max_red) = (QUANTIZE_WORD_MAX, 0);
@@ -174,8 +188,11 @@ where
     }
 
     fn split_box(mut self) -> (Vbox<'a, P>, Vbox<'a, P>) {
+        // split the Vbox at the midpoint of its largest color dimension
+
         assert!(self.can_split());
 
+        // sort the colors by the longest dimension so the midpoint can be searched for
         self.sort_colors_by_longest_dimension();
 
         let split_point = self.find_split_point();
@@ -201,11 +218,14 @@ where
         let midpoint = self.population / 2;
         let mut pop = 0;
 
+        // keep a total sum of all the color populations and return the first one that crosses the midpoint. if no such
+        // color is found, return the first index to still split the Vbox in two
         for (i, (_, count)) in self.colors.iter().enumerate() {
             pop += count;
 
             if pop >= midpoint {
-                // never return the lowest index, so boxes will always be split in two
+                // in case the first color (index 0) already crosses the midpoint, return the color after it in order to
+                // always split the Vbox in two
                 return i.max(1);
             }
         }
@@ -232,6 +252,8 @@ where
     }
 
     fn get_average_color(&self) -> Swatch {
+        // calculate the sum of all the color populations, as well as weighted sums of each color channel based on the
+        // color populations
         let (pop, red_sum, green_sum, blue_sum) =
             self.colors
                 .iter()
@@ -246,10 +268,12 @@ where
                     )
                 });
 
+        // calculate the means of the channel weighted sums...
         let red_mean = red_sum as f32 / pop as f32;
         let green_mean = green_sum as f32 / pop as f32;
         let blue_mean = blue_sum as f32 / pop as f32;
 
+        // ...and quantize them back into 8 bits
         let red_quantized = modify_width(red_mean as u8, QUANTIZE_WORD_WIDTH, 8);
         let green_quantized = modify_width(green_mean as u8, QUANTIZE_WORD_WIDTH, 8);
         let blue_quantized = modify_width(blue_mean as u8, QUANTIZE_WORD_WIDTH, 8);
