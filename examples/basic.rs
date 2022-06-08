@@ -5,9 +5,7 @@ fn main() {
     let img = reader.decode().unwrap();
     let buf = img.to_rgb8();
 
-    let palette = prominence::PaletteBuilder::from_image(buf)
-        .resize_image_area(0)
-        .generate();
+    let palette = prominence::PaletteBuilder::from_image(buf).generate();
 
     println!("{:#?}", palette);
 }
