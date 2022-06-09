@@ -31,13 +31,14 @@ pub const DEFAULT_CALCULATE_NUMBER_COLORS: usize = 16;
 /// The default area to resize the given image to before quantizing;
 pub const DEFAULT_RESIZE_IMAGE_AREA: u32 = 112 * 112;
 
-pub use crate::{swatch::Swatch, target::Target};
+pub use crate::{
+    filter::{DefaultFilter, Filter},
+    swatch::Swatch,
+    target::Target,
+};
 pub use image;
 
-use crate::{
-    color_cut_quantizer::ColorCutQuantizer,
-    filter::{DefaultFilter, Filter},
-};
+use crate::color_cut_quantizer::ColorCutQuantizer;
 use image::{math::Rect, GenericImageView, ImageBuffer};
 use std::collections::{HashMap, HashSet};
 
@@ -376,12 +377,13 @@ fn generate_score(swatch: Swatch, dominant_swatch: Option<Swatch>, target: Targe
         1.0
     };
 
-    // calculate scores for saturation and luminance based on their weight, and how close to the target
-    // saturation/lightness the values are
+    // calculate scores for saturation and luminance based on how close to the target values they are, weighted by the
+    // target
     let saturation_score = target.saturation_weight() * (1.0 - (saturation - target.target_saturation()).abs());
     let lightness_score = target.lightness_weight() * (1.0 - (lightness - target.target_lightness()).abs());
 
-    // calculate score for the population based on its weight and how large portion of the dominant population it is
+    // calculate score for the population based on how large it is compared to the dominant swatch, weighted by the
+    // target
     let population_score = target.population_weight() * (swatch.population() as f32 / max_population);
 
     saturation_score + lightness_score + population_score
@@ -403,11 +405,11 @@ fn rgb_to_hsl((r, g, b): (u8, u8, u8)) -> (f32, f32, f32) {
         let s = c / (1.0 - (2.0 * l - 1.0).abs());
 
         let (segment, shift) = if max == r {
-            ((g - b) / c, if (g - b) / c < 0.0 { 360.0 / 60.0 } else { 0.0 })
+            ((g - b) / c, if (g - b) / c < 0.0 { 6.0 } else { 0.0 })
         } else if max == g {
-            ((b - r) / c, 120.0 / 60.0)
+            ((b - r) / c, 2.0)
         } else {
-            ((r - g) / c, 240.0 / 60.0)
+            ((r - g) / c, 4.0)
         };
 
         (segment + shift, s)
