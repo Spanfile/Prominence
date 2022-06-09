@@ -213,11 +213,11 @@ where
         self
     }
 
-    /// Add a custom filter to the palette.
+    /// Add a custom filter to the palette. Multiple filters may be added. Filters will be evaluated in order of
+    /// insertion.
     ///
-    /// A filter is used to reject certain colors from being included in the palette generation. By default, a filter
-    /// that rejects colors very close to black and white, and colors close to the red side of the I line. TODO: what
-    /// the fu- is the I line?
+    /// A filter is used to reject certain colors from being included in the palette generation. A [`DefaultFilter`] is
+    /// included in every builder by default. It can be removed from the builder with [`PaletteBuilder::clear_filters`].
     pub fn add_filter<F>(mut self, filter: F) -> Self
     where
         F: Filter + 'static,
@@ -361,10 +361,10 @@ fn get_max_scored_swatch_for_target(
 }
 
 fn should_be_scored_for_target(swatch: Swatch, target: Target, used_colors: &HashSet<(u8, u8, u8)>) -> bool {
-    let (_, saturation, lightness) = swatch.hsl();
+    let (_, s, l) = swatch.hsl();
 
-    (target.minimum_saturation()..=target.maximum_saturation()).contains(&saturation)
-        && (target.minimum_lightness()..=target.maximum_lightness()).contains(&lightness)
+    (target.minimum_saturation()..=target.maximum_saturation()).contains(&s)
+        && (target.minimum_lightness()..=target.maximum_lightness()).contains(&l)
         && !used_colors.contains(&swatch.rgb())
 }
 
@@ -389,6 +389,7 @@ fn generate_score(swatch: Swatch, dominant_swatch: Option<Swatch>, target: Targe
     saturation_score + lightness_score + population_score
 }
 
+// thank you SO. https://stackoverflow.com/a/39147465
 fn rgb_to_hsl((r, g, b): (u8, u8, u8)) -> (f32, f32, f32) {
     let r = r as f32 / 255.0;
     let g = g as f32 / 255.0;

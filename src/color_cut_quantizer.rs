@@ -81,11 +81,6 @@ where
         }
     }
 
-    fn should_ignore_color(&self, rgb: (u8, u8, u8)) -> bool {
-        let hsl = crate::rgb_to_hsl(rgb);
-        self.filters.iter().any(|filter| !filter.is_allowed(rgb, hsl))
-    }
-
     fn quantize_pixels(self, mut colors: Vec<(P, u32)>) -> Vec<Swatch> {
         // create a priority queue of Vboxes with the first one containing all the given colors. Vbox comparison is
         // based on their volume, reversed, so the queue always pops the largest Vbox by volume first
@@ -108,6 +103,11 @@ where
                 }
             })
             .collect()
+    }
+
+    fn should_ignore_color(&self, rgb: (u8, u8, u8)) -> bool {
+        let hsl = crate::rgb_to_hsl(rgb);
+        self.filters.iter().any(|filter| !filter.is_allowed(rgb, hsl))
     }
 
     fn split_boxes(&self, pq: &mut BinaryHeap<Vbox<'_, P>>) {
