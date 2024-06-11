@@ -120,37 +120,36 @@ impl Palette {
     /// Returns the color corresponding to the preset light vibrant target, if it exists.
     pub fn light_vibrant_color(&self) -> Option<(u8, u8, u8)> {
         self.get_swatch_for_target(Target::light_vibrant())
-            .map(|swatch| swatch.rgb())
+            .map(Swatch::rgb)
     }
 
     /// Returns the color corresponding to the preset vibrant target, if it exists.
     pub fn vibrant_color(&self) -> Option<(u8, u8, u8)> {
         self.get_swatch_for_target(Target::vibrant())
-            .map(|swatch| swatch.rgb())
+            .map(Swatch::rgb)
     }
 
     /// Returns the color corresponding to the preset dark vibrant target, if it exists.
     pub fn dark_vibrant_color(&self) -> Option<(u8, u8, u8)> {
         self.get_swatch_for_target(Target::dark_vibrant())
-            .map(|swatch| swatch.rgb())
+            .map(Swatch::rgb)
     }
 
     /// Returns the color corresponding to the preset light muted target, if it exists.
     pub fn light_muted_color(&self) -> Option<(u8, u8, u8)> {
         self.get_swatch_for_target(Target::light_muted())
-            .map(|swatch| swatch.rgb())
+            .map(Swatch::rgb)
     }
 
     /// Returns the color corresponding to the preset muted target, if it exists.
     pub fn muted_color(&self) -> Option<(u8, u8, u8)> {
-        self.get_swatch_for_target(Target::muted())
-            .map(|swatch| swatch.rgb())
+        self.get_swatch_for_target(Target::muted()).map(Swatch::rgb)
     }
 
     /// Returns the color corresponding to the preset dark vibrant target, if it exists.
     pub fn dark_muted_color(&self) -> Option<(u8, u8, u8)> {
         self.get_swatch_for_target(Target::dark_muted())
-            .map(|swatch| swatch.rgb())
+            .map(Swatch::rgb)
     }
 
     /// Returns the swatch corresponding to a given target, if it exists.

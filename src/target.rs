@@ -117,17 +117,9 @@ impl Target {
         let weights_sum = self.weights.0 + self.weights.1 + self.weights.2;
 
         if weights_sum != 0.0 {
-            if self.weights.0 > 0.0 {
-                self.weights.0 /= weights_sum;
-            }
-
-            if self.weights.1 > 0.0 {
-                self.weights.1 /= weights_sum;
-            }
-
-            if self.weights.2 > 0.0 {
-                self.weights.2 /= weights_sum;
-            }
+            self.weights.0 /= weights_sum;
+            self.weights.1 /= weights_sum;
+            self.weights.2 /= weights_sum;
         }
     }
 

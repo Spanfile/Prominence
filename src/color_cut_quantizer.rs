@@ -54,23 +54,19 @@ where
         // convert the histogram into a collection of (color, count) tuples, filtering out unwanted
         // colors
         let hist_len = hist.len();
-        let mut colors = hist
+        let mut colors: Vec<_> = hist
             .into_iter()
             .filter_map(|(pixel, count)| {
-                if self.should_ignore_color(pixel_to_rgb(&pixel)) {
-                    None
-                } else {
-                    Some((pixel, count))
-                }
+                self.should_allow_color(pixel_to_rgb(&pixel))
+                    .then_some((pixel, count))
             })
-            .collect::<Vec<_>>();
+            .collect();
 
         // the colors have to be ordered at this point, so order them by combining their channels
-        // into a single integer where the red channel is the most signifcant and the blue
-        // the least
+        // into a single RGB integer where each channel is the quantization word width long
         colors.sort_by_key(|(pixel, _)| {
             let (r, g, b) = pixel_to_rgb(pixel);
-            ((r as u32) << (QUANTIZE_WORD_WIDTH + QUANTIZE_WORD_WIDTH))
+            ((r as u32) << (QUANTIZE_WORD_WIDTH * 2))
                 | ((g as u32) << QUANTIZE_WORD_WIDTH)
                 | b as u32
         });
@@ -102,39 +98,36 @@ where
         pq.iter()
             .filter_map(|vbox| {
                 let swatch = vbox.get_average_color();
-
-                if !self.should_ignore_color(swatch.rgb()) {
-                    Some(swatch)
-                } else {
-                    None
-                }
+                self.should_allow_color(swatch.rgb()).then_some(swatch)
             })
             .collect()
     }
 
-    fn should_ignore_color(&self, rgb: (u8, u8, u8)) -> bool {
+    fn should_allow_color(&self, rgb: (u8, u8, u8)) -> bool {
         let hsl = crate::rgb_to_hsl(rgb);
         self.filters
             .iter()
-            .any(|filter| !filter.is_allowed(rgb, hsl))
+            .all(|filter| filter.is_allowed(rgb, hsl))
     }
 
     fn split_boxes(&self, pq: &mut BinaryHeap<Vbox<'_, P>>) {
+        // keep splitting the largest box in the queue until there are as many Vboxes as requested
+        // colors
         while pq.len() < self.max_colors {
-            if let Some(vbox) = pq.pop() {
-                if vbox.can_split() {
-                    // split the box in two and push them both back to the queue
-                    let (left, right) = vbox.split_box();
+            // terminate early if the queue is empty
+            let Some(vbox) = pq.pop() else { return };
 
-                    pq.push(left);
-                    pq.push(right);
+            if vbox.can_split() {
+                // split the box in two and push them both back to the queue
+                let (left, right) = vbox.split_box();
 
-                    continue;
-                }
+                pq.push(left);
+                pq.push(right);
+
+                continue;
             }
 
-            // if the queue is empty or the largest one cannot be split, there are no more Vboxes to
-            // split
+            // if the largest box cannot be split, there are no more boxes to split
             return;
         }
     }
@@ -148,7 +141,6 @@ where
         // compute the boundaries of the Vbox to tightly fit around the colors within it
 
         let mut population = 0;
-        // min, max
         let (mut min_red, mut max_red) = (QUANTIZE_WORD_MAX, 0);
         let (mut min_green, mut max_green) = (QUANTIZE_WORD_MAX, 0);
         let (mut min_blue, mut max_blue) = (QUANTIZE_WORD_MAX, 0);
@@ -159,25 +151,19 @@ where
 
             if r < min_red {
                 min_red = r;
-            }
-
-            if r > max_red {
+            } else if r > max_red {
                 max_red = r;
             }
 
             if g < min_green {
                 min_green = g;
-            }
-
-            if g > max_green {
+            } else if g > max_green {
                 max_green = g;
             }
 
             if b < min_blue {
                 min_blue = b;
-            }
-
-            if b > max_blue {
+            } else if b > max_blue {
                 max_blue = b;
             }
         }
@@ -197,41 +183,43 @@ where
             * (self.blue_range.1 - self.blue_range.0 + 1) as u32
     }
 
+    /// Split the Vbox at the midpoint of its largest color dimension, returning two new Vboxes that
+    /// represent the boxes to the left and right of the split.
     fn split_box(mut self) -> (Vbox<'a, P>, Vbox<'a, P>) {
-        // split the Vbox at the midpoint of its largest color dimension
-
         assert!(self.can_split());
 
         // sort the colors by the longest dimension so the midpoint can be searched for
         self.sort_colors_by_longest_dimension();
 
         let split_point = self.find_split_point();
-        let (old, new) = self.colors.split_at_mut(split_point);
+        let (left, right) = self.colors.split_at_mut(split_point);
 
-        let old_box = Vbox::new(old);
-        let new_box = Vbox::new(new);
-
-        (old_box, new_box)
+        (Vbox::new(left), Vbox::new(right))
     }
 
     fn sort_colors_by_longest_dimension(&mut self) {
         let longest_dimension = self.get_longest_dimension();
 
-        self.colors
-            .sort_by(|(lhs, _), (rhs, _)| match longest_dimension {
-                Component::Red => pixel_to_rgb(lhs).0.cmp(&pixel_to_rgb(rhs).0),
-                Component::Green => pixel_to_rgb(lhs).1.cmp(&pixel_to_rgb(rhs).1),
-                Component::Blue => pixel_to_rgb(lhs).2.cmp(&pixel_to_rgb(rhs).2),
-            });
+        self.colors.sort_by(|(lhs, _), (rhs, _)| {
+            let (lr, lg, lb) = pixel_to_rgb(lhs);
+            let (rr, rg, rb) = pixel_to_rgb(rhs);
+
+            match longest_dimension {
+                Component::Red => lr.cmp(&rr),
+                Component::Green => lg.cmp(&rg),
+                Component::Blue => lb.cmp(&rb),
+            }
+        });
     }
 
-    fn find_split_point(&mut self) -> usize {
+    /// Search for the index of the color after which their cumulative population sum has crossed
+    /// half the total population. This function assumes the colors have been sorted beforehand.
+    fn find_split_point(&self) -> usize {
         let midpoint = self.population / 2;
         let mut pop = 0;
 
         // keep a total sum of all the color populations and return the first one that crosses the
-        // midpoint. if no such color is found, return the first index to still split the
-        // Vbox in two
+        // midpoint
         for (i, (_, count)) in self.colors.iter().enumerate() {
             pop += count;
 
@@ -242,6 +230,8 @@ where
             }
         }
 
+        // if no color crossing the midpoint is found, return the first index to still split the
+        // Vbox in two
         1
     }
 
@@ -264,13 +254,12 @@ where
     }
 
     fn get_average_color(&self) -> Swatch {
-        // calculate the sum of all the color populations, as well as weighted sums of each color
+        // calculate the sum of all the color populations as well as weighted sums of each color
         // channel based on the color populations
         let (pop, red_sum, green_sum, blue_sum) = self.colors.iter().fold(
             (0, 0, 0, 0),
             |(pop, red_sum, green_sum, blue_sum), (pixel, count)| {
                 let (r, g, b) = pixel_to_rgb(pixel);
-
                 (
                     pop + count,
                     red_sum + r as u32 * count,
