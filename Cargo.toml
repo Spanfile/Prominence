@@ -6,17 +6,15 @@ keywords = ["graphics", "palette", "image", "color", "quantize"]
 license-file = "LICENSE"
 name = "prominence"
 repository = "https://github.com/Spanfile/Prominence"
-version = "0.1.0"
+version = "0.2.0"
 
-exclude = [
-  ".vscode",
-]
+exclude = [".vscode"]
 
 [dependencies]
-image = "0.24.2"
+image = "0.25.1"
 rand = "0.8.5"
 
-serde = {version = "1.0.137", features = ["derive"], optional = true}
+serde = { version = "1.0.137", features = ["derive"], optional = true }
 
 [features]
 serde = ["dep:serde"]

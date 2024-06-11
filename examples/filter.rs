@@ -3,8 +3,8 @@ use prominence::image::io::Reader as ImageReader;
 const BLACK_MAX_LIGHTNESS: f32 = 0.02;
 const WHITE_MIN_LIGHTNESS: f32 = 0.90;
 
-// this filter uses the same approach as the default filter in prominence, except it allows more darker colors and
-// blocks more lighter colors
+// this filter uses the same approach as the default filter in prominence, except it allows more
+// darker colors and blocks more lighter colors
 struct CustomFilter;
 impl prominence::Filter for CustomFilter {
     fn is_allowed(&self, _: (u8, u8, u8), (_, _, l): (f32, f32, f32)) -> bool {

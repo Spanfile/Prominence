@@ -14,8 +14,9 @@
 
 //! A library to extract prominent colors from an image.
 //!
-//! This library is a reimplementation of the Palette library in Android Jetpack. Android Jetpack is Copyright 2018 The
-//! Android Open Source Project. Android Jetpack is licensed under the Apache License, Version 2.0.
+//! This library is a reimplementation of the Palette library in Android Jetpack. Android Jetpack is
+//! Copyright 2018 The Android Open Source Project. Android Jetpack is licensed under the Apache
+//! License, Version 2.0.
 //!
 //! [Original source.](https://github.com/androidx/androidx/tree/f4eca2c46040cab36ebf7f34e68bdd973110e4a5/palette/palette/src/main/java/androidx/palette/graphics)
 //!
@@ -31,16 +32,17 @@ pub const DEFAULT_CALCULATE_NUMBER_COLORS: usize = 16;
 /// The default area to resize the given image to before quantizing;
 pub const DEFAULT_RESIZE_IMAGE_AREA: u32 = 112 * 112;
 
+use std::collections::{HashMap, HashSet};
+
+pub use image;
+use image::{math::Rect, GenericImageView, ImageBuffer};
+
+use crate::color_cut_quantizer::ColorCutQuantizer;
 pub use crate::{
     filter::{DefaultFilter, Filter},
     swatch::Swatch,
     target::Target,
 };
-pub use image;
-
-use crate::color_cut_quantizer::ColorCutQuantizer;
-use image::{math::Rect, GenericImageView, ImageBuffer};
-use std::collections::{HashMap, HashSet};
 
 /// A color palette derived from an image.
 #[derive(Debug)]
@@ -66,7 +68,9 @@ where
 
 impl Palette {
     /// Return a new [`PaletteBuilder`] from a given image buffer.
-    pub fn from_image<P>(image: ImageBuffer<P, Vec<<P as image::Pixel>::Subpixel>>) -> PaletteBuilder<P>
+    pub fn from_image<P>(
+        image: ImageBuffer<P, Vec<<P as image::Pixel>::Subpixel>>,
+    ) -> PaletteBuilder<P>
     where
         P: image::Pixel<Subpixel = u8> + 'static + std::cmp::Eq + std::hash::Hash,
     {
@@ -121,7 +125,8 @@ impl Palette {
 
     /// Returns the color corresponding to the preset vibrant target, if it exists.
     pub fn vibrant_color(&self) -> Option<(u8, u8, u8)> {
-        self.get_swatch_for_target(Target::vibrant()).map(|swatch| swatch.rgb())
+        self.get_swatch_for_target(Target::vibrant())
+            .map(|swatch| swatch.rgb())
     }
 
     /// Returns the color corresponding to the preset dark vibrant target, if it exists.
@@ -138,7 +143,8 @@ impl Palette {
 
     /// Returns the color corresponding to the preset muted target, if it exists.
     pub fn muted_color(&self) -> Option<(u8, u8, u8)> {
-        self.get_swatch_for_target(Target::muted()).map(|swatch| swatch.rgb())
+        self.get_swatch_for_target(Target::muted())
+            .map(|swatch| swatch.rgb())
     }
 
     /// Returns the color corresponding to the preset dark vibrant target, if it exists.
@@ -152,7 +158,8 @@ impl Palette {
         self.selected_swatches.get(&target.id()).copied().flatten()
     }
 
-    /// Returns the most prominent color in the palette, which is the swatch with the largest population.
+    /// Returns the most prominent color in the palette, which is the swatch with the largest
+    /// population.
     pub fn most_prominent_color(&self) -> Option<(u8, u8, u8)> {
         self.swatches
             .iter()
@@ -181,30 +188,41 @@ where
         unimplemented!()
     }
 
-    /// Set the desired area to shrink the image to before quantizing. Set to `None` to disable shrinking.
+    /// Set the desired area to shrink the image to before quantizing. Set to `None` to disable
+    /// shrinking.
     ///
     /// By default the image will be shrunk to an area of 112 by 112 pixels, as defined in the
-    /// [`DEFAULT_RESIZE_IMAGE_AREA`] constant. The image will not be grown if it is already smaller than the desired
-    /// area.
+    /// [`DEFAULT_RESIZE_IMAGE_AREA`] constant. The image will not be grown if it is already smaller
+    /// than the desired area.
     pub fn resize_image_area(self, resize_area: Option<u32>) -> Self {
-        Self { resize_area, ..self }
+        Self {
+            resize_area,
+            ..self
+        }
     }
 
     /// Set a custom region to focus the palette generation on.
     ///
     /// The region is based on the original image. If the image is shrunk before quantizing (see
-    /// [`PaletteBuilder::resize_image_area`]), the given region will be scaled accordingly to still cover a similar
-    /// area in the shrunk image. By default, the entire image is used to generate the palette.
+    /// [`PaletteBuilder::resize_image_area`]), the given region will be scaled accordingly to still
+    /// cover a similar area in the shrunk image. By default, the entire image is used to
+    /// generate the palette.
     pub fn region(self, x: u32, y: u32, width: u32, height: u32) -> Self {
         Self {
-            region: Some(Rect { x, y, width, height }),
+            region: Some(Rect {
+                x,
+                y,
+                width,
+                height,
+            }),
             ..self
         }
     }
 
     /// Add a custom target to the palette.
     ///
-    /// By default, a set of preset targets are included in every palette. See [`Target::default_targets()`].
+    /// By default, a set of preset targets are included in every palette. See
+    /// [`Target::default_targets()`].
     pub fn add_target(mut self, target: Target) -> Self {
         if !self.targets.contains(&target) {
             self.targets.push(target);
@@ -213,11 +231,12 @@ where
         self
     }
 
-    /// Add a custom filter to the palette. Multiple filters may be added. Filters will be evaluated in order of
-    /// insertion.
+    /// Add a custom filter to the palette. Multiple filters may be added. Filters will be evaluated
+    /// in order of insertion.
     ///
-    /// A filter is used to reject certain colors from being included in the palette generation. A [`DefaultFilter`] is
-    /// included in every builder by default. It can be removed from the builder with [`PaletteBuilder::clear_filters`].
+    /// A filter is used to reject certain colors from being included in the palette generation. A
+    /// [`DefaultFilter`] is included in every builder by default. It can be removed from the
+    /// builder with [`PaletteBuilder::clear_filters`].
     pub fn add_filter<F>(mut self, filter: F) -> Self
     where
         F: Filter + 'static,
@@ -228,7 +247,10 @@ where
 
     /// Clears the set region.
     pub fn clear_region(self) -> Self {
-        Self { region: None, ..self }
+        Self {
+            region: None,
+            ..self
+        }
     }
 
     /// Removes all targets in the builder, including the presets.
@@ -257,8 +279,10 @@ where
 
                 region.x = (region.x as f32 * scale).floor() as u32;
                 region.y = (region.y as f32 * scale).floor() as u32;
-                region.width = ((region.width as f32 * scale) as u32 + region.x).min(self.image.width() - region.x);
-                region.height = ((region.height as f32 * scale) as u32 + region.y).min(self.image.height() - region.y);
+                region.width = ((region.width as f32 * scale) as u32 + region.x)
+                    .min(self.image.width() - region.x);
+                region.height = ((region.height as f32 * scale) as u32 + region.y)
+                    .min(self.image.height() - region.y);
 
                 self.region = Some(region);
             }
@@ -308,7 +332,9 @@ where
         let area = width * height;
 
         let scale_ratio = match self.resize_area {
-            Some(resize_area) if resize_area > 0 && area > resize_area => (resize_area as f32 / area as f32).sqrt(),
+            Some(resize_area) if resize_area > 0 && area > resize_area => {
+                (resize_area as f32 / area as f32).sqrt()
+            }
             _ => 0.0,
         };
 
@@ -333,7 +359,9 @@ fn generate_scored_target(
     used_colors: &mut HashSet<(u8, u8, u8)>,
 ) -> Option<Swatch> {
     if target.is_exclusive() {
-        if let Some(max_scored_swatch) = get_max_scored_swatch_for_target(swatches, target, used_colors) {
+        if let Some(max_scored_swatch) =
+            get_max_scored_swatch_for_target(swatches, target, used_colors)
+        {
             used_colors.insert(max_scored_swatch.rgb());
             return Some(max_scored_swatch);
         }
@@ -347,7 +375,10 @@ fn get_max_scored_swatch_for_target(
     target: Target,
     used_colors: &HashSet<(u8, u8, u8)>,
 ) -> Option<Swatch> {
-    let dominant_swatch = swatches.iter().copied().max_by_key(|swatch| swatch.population());
+    let dominant_swatch = swatches
+        .iter()
+        .copied()
+        .max_by_key(|swatch| swatch.population());
 
     swatches
         .iter()
@@ -360,7 +391,11 @@ fn get_max_scored_swatch_for_target(
         })
 }
 
-fn should_be_scored_for_target(swatch: Swatch, target: Target, used_colors: &HashSet<(u8, u8, u8)>) -> bool {
+fn should_be_scored_for_target(
+    swatch: Swatch,
+    target: Target,
+    used_colors: &HashSet<(u8, u8, u8)>,
+) -> bool {
     let (_, s, l) = swatch.hsl();
 
     (target.minimum_saturation()..=target.maximum_saturation()).contains(&s)
@@ -377,14 +412,17 @@ fn generate_score(swatch: Swatch, dominant_swatch: Option<Swatch>, target: Targe
         1.0
     };
 
-    // calculate scores for saturation and luminance based on how close to the target values they are, weighted by the
-    // target
-    let saturation_score = target.saturation_weight() * (1.0 - (saturation - target.target_saturation()).abs());
-    let lightness_score = target.lightness_weight() * (1.0 - (lightness - target.target_lightness()).abs());
+    // calculate scores for saturation and luminance based on how close to the target values they
+    // are, weighted by the target
+    let saturation_score =
+        target.saturation_weight() * (1.0 - (saturation - target.target_saturation()).abs());
+    let lightness_score =
+        target.lightness_weight() * (1.0 - (lightness - target.target_lightness()).abs());
 
-    // calculate score for the population based on how large it is compared to the dominant swatch, weighted by the
-    // target
-    let population_score = target.population_weight() * (swatch.population() as f32 / max_population);
+    // calculate score for the population based on how large it is compared to the dominant swatch,
+    // weighted by the target
+    let population_score =
+        target.population_weight() * (swatch.population() as f32 / max_population);
 
     saturation_score + lightness_score + population_score
 }
